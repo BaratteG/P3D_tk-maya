@@ -16,6 +16,9 @@ import sgtk
 
 HookBaseClass = sgtk.get_hook_baseclass()
 
+engine  = sgtk.platform.current_engine()
+tk_maya = engine.import_module("tk_maya")
+
 
 class MayaSessionCollector(HookBaseClass):
     """
@@ -42,12 +45,7 @@ class MayaSessionCollector(HookBaseClass):
         The type string should be one of the data types that toolkit accepts as
         part of its environment configuration.
         """
-
-        # grab any base class settings
-        collector_settings = super(MayaSessionCollector, self).settings or {}
-
-        # settings specific to this collector
-        maya_session_settings = {
+        return {
             "Work Template": {
                 "type": "template",
                 "default": None,
@@ -59,11 +57,6 @@ class MayaSessionCollector(HookBaseClass):
             },
         }
 
-        # update the base settings with these settings
-        collector_settings.update(maya_session_settings)
-
-        return collector_settings
-
     def process_current_session(self, settings, parent_item):
         """
         Analyzes the current session open in Maya and parents a subtree of
@@ -73,45 +66,149 @@ class MayaSessionCollector(HookBaseClass):
         :param parent_item: Root item instance
 
         """
+        # Get the current engine.
+        currentEngine = sgtk.platform.current_engine()
+        # Get the current context.
+        currentContext = currentEngine.context
+        # Get the context project.
+        ctxtProject = currentContext.project
+        # Get the context step.
+        ctxtStep = currentContext.step
+        # Get the context entity.
+        ctxtEntity = currentContext.entity
+        # Get the context task.
+        ctxtTask = currentContext.task
+        # Get the context user.
+        ctxtUser = currentContext.user
 
-        # create an item representing the current maya session
-        item = self.collect_current_maya_session(settings, parent_item)
-        project_root = item.properties["project_root"]
+        print(ctxtProject)
+        print(currentContext)
 
-        # look at the render layers to find rendered images on disk
-        self.collect_rendered_images(item)
+        # Set the P3D publish pipeline.
+        if(ctxtStep["name"] == "Model"):
+            # Collect the data for a Model Publish.
+            self.collect_for_model_publish(settings, parent_item)
 
-        # if we can determine a project root, collect other files to publish
-        if project_root:
-
-            self.logger.info(
-                "Current Maya project is: %s." % (project_root,),
-                extra={
-                    "action_button": {
-                        "label": "Change Project",
-                        "tooltip": "Change to a different Maya project",
-                        "callback": lambda: mel.eval('setProject ""'),
-                    }
-                },
-            )
-
-            self.collect_playblasts(item, project_root)
-            self.collect_alembic_caches(item, project_root)
         else:
 
-            self.logger.info(
-                "Could not determine the current Maya project.",
-                extra={
-                    "action_button": {
-                        "label": "Set Project",
-                        "tooltip": "Set the Maya project",
-                        "callback": lambda: mel.eval('setProject ""'),
-                    }
-                },
+            # create an item representing the current maya session
+            item = self.collect_current_maya_session(settings, parent_item)
+            project_root = item.properties["project_root"]
+
+            # look at the render layers to find rendered images on disk
+            self.collect_rendered_images(item)
+
+            # if we can determine a project root, collect other files to publish
+            if project_root:
+
+                self.logger.info(
+                    "Current Maya project is: %s." % (project_root,),
+                    extra={
+                        "action_button": {
+                            "label": "Change Project",
+                            "tooltip": "Change to a different Maya project",
+                            "callback": lambda: mel.eval('setProject ""'),
+                        }
+                    },
+                )
+
+                self.collect_playblasts(item, project_root)
+                self.collect_alembic_caches(item, project_root)
+            else:
+
+                self.logger.info(
+                    "Could not determine the current Maya project.",
+                    extra={
+                        "action_button": {
+                            "label": "Set Project",
+                            "tooltip": "Set the Maya project",
+                            "callback": lambda: mel.eval('setProject ""'),
+                        }
+                    },
+                )
+
+            if cmds.ls(geometry=True, noIntermediate=True):
+                self._collect_session_geometry(item)
+
+            #self.collect_selected_asset(item)
+
+    def collect_for_model_publish(self, settings, parent_item):
+        """
+        Create the items for the model pipeline step publish.
+
+        :param dict settings: Configured settings for this collector
+        :param parent_item: Root item instance
+        """
+
+        self.collect_selected_assets(settings, parent_item)
+
+
+    def collect_selected_assets(self, settings, parent_item):
+        """
+        Create an item represents the current selected asset.
+
+        :param parent_item: Parent Item instance
+        """
+        print("SGTK | Collector | Collect the session's selected assets.")
+
+        # Get the current maya selection.
+        mSelection = cmds.ls(sl=True, type="transform")
+
+        # Check if the current selection is not empty.
+        if(len(mSelection) > 0):
+
+            # Create an item for each selected asset.
+            for asset in mSelection:
+
+                self.collect_asset(settings, parent_item, asset)
+
+    def collect_asset(self, settings, parent_item, assetRoot):
+        """ Collect an asset.
+
+        Args:
+            settings    (dict) :    Configured settings for this collector.
+            parent_item ():         Parent Item instance.
+            assetRoot   (str):      The asset root name.
+
+        Returns:
+            item : The new ui item.
+        """
+        publisher = self.parent
+
+        # Create the ui item for the asset.
+        assetItem = parent_item.create_item("maya.asset", "Asset", assetRoot)
+
+        # Get the icon path to display for this item
+        icon_path = os.path.join(self.disk_location, os.pardir, "icons", "maya.png")
+        assetItem.set_icon_from_path(icon_path)
+
+        # Add the asset project root to the item properties.
+        project_root = cmds.workspace(q=True, rootDirectory=True)
+        assetItem.properties["project_root"] = project_root
+
+        # Create the asset object an add it to the item properties.
+        # That allow to share the MayaAsset Class with the publish plugin.
+        mayaAsset = tk_maya.MayaAsset(assetRoot=assetRoot)
+        assetItem.properties["assetObject"] = mayaAsset
+
+        # if a work template is defined, add it to the item properties so
+        # that it can be used by attached publish plugins
+        work_template_setting = settings.get("Work Template")
+        if work_template_setting:
+
+            work_template = publisher.engine.get_template_by_name(
+                work_template_setting.value
             )
 
-        if cmds.ls(geometry=True, noIntermediate=True):
-            self._collect_session_geometry(item)
+            # store the template on the item for use by publish plugins. we
+            # can't evaluate the fields here because there's no guarantee the
+            # current session path won't change once the item has been created.
+            # the attached publish plugins will need to resolve the fields at
+            # execution time.
+            assetItem.properties["work_template"] = work_template
+            self.logger.debug("Work template defined for Maya collection.")
+
+        return assetItem
 
     def collect_current_maya_session(self, settings, parent_item):
         """
@@ -121,6 +218,8 @@ class MayaSessionCollector(HookBaseClass):
 
         :returns: Item of type maya.session
         """
+
+        print("SGTK | Collector | Get the maya current session infos.")
 
         publisher = self.parent
 
@@ -180,6 +279,9 @@ class MayaSessionCollector(HookBaseClass):
         :param str project_root: The maya project root to search for alembics
         """
 
+        print("SGTK | Collector | Collect the session's alembic.")
+
+
         # ensure the alembic cache dir exists
         cache_dir = os.path.join(project_root, "cache", "alembic")
         if not os.path.exists(cache_dir):
@@ -211,6 +313,7 @@ class MayaSessionCollector(HookBaseClass):
 
         :param parent_item: Parent Item instance
         """
+        print("SGTK | Collector | Collect the session's geometries.")
 
         geo_item = parent_item.create_item(
             "maya.session.geometry", "Geometry", "All Session Geometry"
@@ -231,6 +334,8 @@ class MayaSessionCollector(HookBaseClass):
         :param parent_item: Parent Item instance
         :param str project_root: The maya project root to search for playblasts
         """
+        print("SGTK | Collector | Collect the session's playblasts.")
+
 
         movie_dir_name = None
 
@@ -285,6 +390,7 @@ class MayaSessionCollector(HookBaseClass):
         :param parent_item: Parent Item instance
         :return:
         """
+        print("SGTK | Collector | Collect the session's rendered images.")
 
         # iterate over defined render layers and query the render settings for
         # information about a potential render

@@ -8,5 +8,7 @@
 # agreement to the Shotgun Pipeline Toolkit Source Code License. All rights
 # not expressly granted therein are reserved by Shotgun Software Inc.
 
-from .menu_generation import MenuGenerator
+from .menu_generation   import MenuGenerator
+from .mayaAsset         import MayaAsset
+from .mayaHookBaseClass import MayaHookBaseClass
 from . import panel_generation

@@ -121,6 +121,8 @@ class MayaSessionGeometryPublishPlugin(HookBaseClass):
         :returns: dictionary with boolean keys accepted, required and enabled
         """
 
+        self.logger.info("Maya Geometry Publish | accept")
+
         accepted = True
         publisher = self.parent
         template_name = settings["Publish Template"].value
@@ -173,6 +175,7 @@ class MayaSessionGeometryPublishPlugin(HookBaseClass):
         :param item: Item to process
         :returns: True if item is valid, False otherwise.
         """
+        self.logger.info("Maya Geometry Publish | validate")
 
         path = _session_path()
 
@@ -238,6 +241,7 @@ class MayaSessionGeometryPublishPlugin(HookBaseClass):
             instances.
         :param item: Item to process
         """
+        self.logger.info("Maya Geometry Publish | publish")
 
         publisher = self.parent
 

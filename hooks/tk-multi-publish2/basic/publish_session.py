@@ -17,6 +17,9 @@ from tank_vendor import six
 
 HookBaseClass = sgtk.get_hook_baseclass()
 
+print("MAYA SESSION")
+print(dir(HookBaseClass))
+print(HookBaseClass.__bases__)
 
 class MayaSessionPublishPlugin(HookBaseClass):
     """
